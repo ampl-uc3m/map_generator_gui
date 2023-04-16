@@ -12,86 +12,80 @@ from visualization_msgs.msg import Marker,MarkerArray
 
 class WayPoint():
         
-    def __init__(self, name, x, y, z, speed, aceleration, navigation_mode):    
+    def __init__(self, x, y, z, speed, aceleration, id_crosswalk, navigation_mode):    
         
-        self.name = name
         self.x = x
         self.y = y
         self.z = z
         self.speed = speed
         self.aceleration = aceleration
-        self.id_crosswalk = -1
+        self.id_crosswalk = id_crosswalk
         self.navigation_mode = navigation_mode
+        self.ascending_number = 0
     
     def get_tuple(self):
         
-        tup = (self.name, str(self.x), str(self.y), str(self.z), str(self.speed), str(self.aceleration), str(self.id_crosswalk), str(self.navigation_mode))
+        tup = (str(self.x), str(self.y), str(self.z), str(self.speed), str(self.aceleration), str(self.id_crosswalk), str(self.navigation_mode))
         return tup
 
-class CrossWalk(WayPoint):
+class CrossWalk():
     
-    def __init__(self, name, x, y, z, speed, aceleration, id_crosswalk, navigation_mode, width, lenght, yaw):
+    def __init__(self, x, y, height, width, yaw, mode, ids):
         
-        super().__init__(name, x, y, z, speed, aceleration, navigation_mode)
+        self.x = x
+        self.y = y
+        self.height = height
         self.width = width
-        self.lenght = lenght
         self.yaw = yaw
-        self.id_crosswalk = id_crosswalk
-    
-    def get_marker(self, ids):
+        self.mode = mode
         
-        marker = Marker()
+        self.marker = Marker()
         
-        marker.header.frame_id = "map"
+        self.marker.header.frame_id = "map"
         
-        marker.ns = "crosswalk zones"
-        marker.type = 1                 #CUBE
-        marker.action = 0               #ADD/MODIFY
-        marker.id = 0
+        self.marker.ns = "crosswalk zones"
+        self.marker.type = 1                 #CUBE
+        self.marker.action = 0               #ADD/MODIFY
+        self.marker.id = 0
         
-        if self.id_crosswalk == -1:               #When you create a new crosswalk, a new ID is asigned
-            c = True
-            while c:
-                c = False
-                for i in ids:
-                    if i == marker.id:
-                        marker.id += 1
-                        c = True
-            self.id_crosswalk = marker.id
-        else:                                     #This happens when you upload a file that already has IDs set
-            marker.id = self.id_crosswalk
-                
-        marker.pose.position.x = self.x 
-        marker.pose.position.y = self.y 
-        marker.pose.position.z = self.z 
+        while self.marker.id in ids:
+            self.marker.id += 1
+
+        self.marker_id = self.marker.id
+ 
+        self.marker.pose.position.x = self.x 
+        self.marker.pose.position.y = self.y 
+        self.marker.pose.position.z = 0.0
          
         quat = tf.transformations.quaternion_from_euler(0.0, 0.0, np.deg2rad(self.yaw))
-        marker.pose.orientation.x = quat[0]
-        marker.pose.orientation.y = quat[1]
-        marker.pose.orientation.z = quat[2]
-        marker.pose.orientation.w = quat[3]
+        self.marker.pose.orientation.x = quat[0]
+        self.marker.pose.orientation.y = quat[1]
+        self.marker.pose.orientation.z = quat[2]
+        self.marker.pose.orientation.w = quat[3]
         
-        marker.scale.x = self.width 
-        marker.scale.y = self.lenght
-        marker.scale.z = 2.0
+        self.marker.scale.x = self.width 
+        self.marker.scale.y = self.height
+        self.marker.scale.z = 2.0
         
-        marker.color.r = 1
-        marker.color.g = 0
-        marker.color.b = 0
-        marker.color.a = 0.5
+        self.marker.color.r = 1
+        self.marker.color.g = 0
+        self.marker.color.b = 0
+        self.marker.color.a = 0.5
         
-        marker.lifetime = rospy.Duration(2)
-        marker.frame_locked = True
-        
-        return marker
+        self.marker.lifetime = rospy.Duration(0)
+        self.marker.frame_locked = True
 
+    def get_tuple(self):
+            
+            tup = (str(self.x), str(self.y), str(self.height), str(self.width), str(self.yaw), str(self.mode))
+            return tup
+    
 class Application():
 
     def __init__(self):
         
         self.waypoints_list = []
-        self.crosswalks = MarkerArray()
-        self.crosswalk_ids = []
+        self.crosswalk_list = []
         self.record = False
         self.publish_path = False
         self.publish_crosswalks = False
@@ -151,7 +145,7 @@ class Application():
         
         tabControl.add(paths_tab, text="Path Saver")
         tabControl.add(waypoints_tab, text="WayPoints")
-        tabControl.add(crosswalk_tab, text="Display")
+        tabControl.add(crosswalk_tab, text="Crosswalks")
         
         #-----------------------------------------------------------------------------------------------------------
         #Path_steering_saver node GUI
@@ -212,7 +206,7 @@ class Application():
         waypoints_frame.place(x=10, y=10)
         
         data_label = LabelFrame(waypoints_frame, text="Waypoints entry", bg="#1e1e1e", fg="#ffffff")
-        data_label.place(x=10, y=10)
+        data_label.place(x=10, y=5)
         
         xyz_label = Label(data_label, text="Position(RViz)", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=0, columnspan=2, sticky="e", padx=(5,100), pady=10)
         
@@ -223,41 +217,38 @@ class Application():
         self.x_var = DoubleVar()
         self.y_var = DoubleVar()
         self.z_var = DoubleVar()
-        x_entry = Entry(data_label, textvariable= self.x_var, state="disable").grid(column=4, row=1, sticky="w", padx=(5,50), pady=10)     
-        y_entry = Entry(data_label, textvariable= self.y_var, state="disable").grid(column=4, row=2, sticky="w", padx=(5,50), pady=10)     
-        z_entry = Entry(data_label, textvariable= self.z_var, state="disable").grid(column=4, row=3, sticky="w", padx=(5,50), pady=10)
+        x_entry = Entry(data_label, textvariable= self.x_var, state="disable").grid(column=4, row=1, sticky="w", padx=(5,40), pady=10)     
+        y_entry = Entry(data_label, textvariable= self.y_var, state="disable").grid(column=4, row=2, sticky="w", padx=(5,40), pady=10)     
+        z_entry = Entry(data_label, textvariable= self.z_var, state="disable").grid(column=4, row=3, sticky="w", padx=(5,40), pady=10)
        
-        name_label = Label(data_label, text="Name:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=0, sticky="e", padx=(40,5), pady=10)
-        speed_label = Label(data_label, text="Speed:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
-        aceleration_label=  Label(data_label, text="Aceleration:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
-        navigation_mode_label = Label(data_label, text="Nav. mode:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=3, sticky="e", padx=(40,5), pady=10)
         
-        self.name_var = StringVar()
+        speed_label = Label(data_label, text="Speed:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=0, sticky="e", padx=(40,5), pady=10)
+        aceleration_label=  Label(data_label, text="Aceleration:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
+        name_label = Label(data_label, text="ID Crosswalk:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
+        navigation_mode_label = Label(data_label, text="Nav. mode:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=3, sticky="e", padx=(40,5), pady=10)
+
         self.speed_var = DoubleVar()
         self.aceleration_var = DoubleVar()
-        self.navigation_mode_var = IntVar()
-        name_entry = Entry(data_label, textvariable= self.name_var).grid(column=1, row=0, sticky="w")
-        speed_entry = Entry(data_label, textvariable= self.speed_var).grid(column=1, row=1, sticky="w")
-        aceleration_entry = Entry(data_label, textvariable= self.aceleration_var).grid(column=1, row=2, sticky="w")
-        navigation_mode_entry = ttk.Combobox(data_label, textvariable= self.navigation_mode_var, values= ["0", "1"]).grid(column=1, row=3, sticky="w")
+        self.id_crosswalk_var = IntVar()
+        self.nav_mode_var = IntVar()
+        speed_entry = Entry(data_label, textvariable= self.speed_var).grid(column=1, row=0, sticky="w")
+        aceleration_entry = Entry(data_label, textvariable= self.aceleration_var).grid(column=1, row=1, sticky="w")
+        id_crosswalk_entry = ttk.Combobox(data_label, textvariable= self.id_crosswalk_var, values= ["0", "-1"]).grid(column=1, row=2, sticky="w")
+        navigation_mode_entry = ttk.Combobox(data_label, textvariable= self.nav_mode_var, values= ["0", "1"]).grid(column=1, row=3, sticky="w")
         
         create_button = Button(data_label, text="Create", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("create_wp"))
         clear_button = Button(data_label, text="Clear", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("clear_data_wp"))
-        create_button.grid(column=4, row=5, sticky="w", padx=5, pady=10)
-        clear_button.grid(column=4, row=5, sticky="e", padx=(5,30), pady=10)
+        create_button.grid(column=4, row=5, sticky="e", padx=(0,90), pady=10)
+        clear_button.grid(column=4, row=5, sticky="e", padx=(0,10), pady=10)
         
         #-----------------------------------------------------------------------------------------------------------
         #waypoints list display       
-        wp_display_label = LabelFrame(waypoints_frame, text="Waypoints list", width=680, height=480, bg="#1e1e1e", fg="#ffffff")
-        wp_display_label.place(x=10, y=270)
+        columns = ("x", "y", "z", "Speed", "Aceleration", "ID Crosswalk", "Navigation Mode")
         
-        columns = ("Name", "x", "y", "z", "Speed", "Aceleration", "ID Crosswalk", "Navigation Mode")
-        
-        self.tree = ttk.Treeview(wp_display_label, selectmode="browse", columns=columns, show="headings")
-        self.tree.place(x=10, y=10, width=645, height=400)
+        self.tree = ttk.Treeview(waypoints_frame, selectmode="browse", columns=columns, show="headings")
+        self.tree.place(x=10, y=265, width=645, height=260)
     
         #Define columns format
-        self.tree.column("Name", anchor=W, width=120)
         self.tree.column("x", anchor=W, width=120)
         self.tree.column("y", anchor=W, width=120)
         self.tree.column("z", anchor=W, width=120)
@@ -267,7 +258,6 @@ class Application():
         self.tree.column("Navigation Mode", anchor=CENTER, width=145)
         
         #Define headings format
-        self.tree.heading("Name", text="Name", anchor=W)
         self.tree.heading("x", text="x", anchor=W)
         self.tree.heading("y", text="y", anchor=W)
         self.tree.heading("z", text="z", anchor=W)
@@ -277,70 +267,100 @@ class Application():
         self.tree.heading("Navigation Mode", text="Navigation Mode", anchor=CENTER)
         
         #Creating srollbars
-        vs = ttk.Scrollbar(wp_display_label, orient="vertical", command=self.tree.yview)
+        vs = ttk.Scrollbar(waypoints_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vs.set)
-        vs.place(x=655, y=10, height=400)
+        vs.place(x=655, y=265, height=260)
         
-        hs = ttk.Scrollbar(wp_display_label, orient="horizontal", command=self.tree.xview)
+        hs = ttk.Scrollbar(waypoints_frame, orient="horizontal", command=self.tree.xview)
         self.tree.configure(xscrollcommand=hs.set)
-        hs.place(x=10, y=395, width=645)
+        hs.place(x=10, y=510, width=645)
         
         #Control Buttons
-        save_wp = Button(wp_display_label, text="Save waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.save_waypoints_list)
-        load_wp = Button(wp_display_label, text="Load waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.load_waypoints_list)
-        delete_wp = Button(wp_display_label, text="Delete waypoint", bg="#1e1e1e", fg="#ffffff", command=self.delete_waypoint)
-        save_wp.place(x=340, y=420)
-        load_wp.place(x=510, y=420)
-        delete_wp.place(x=190, y=420)
+        # save_wp = Button(waypoints_frame, text="Save waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.save_waypoints_list)
+        # load_wp = Button(waypoints_frame, text="Load waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.load_waypoints_list)
+        delete_wp = Button(waypoints_frame, text="Delete waypoint", bg="#1e1e1e", fg="#ffffff", command=self.delete_waypoint)
+        # save_wp.place(x=340, y=420)
+        # load_wp.place(x=510, y=420)
+        delete_wp.place(x=510, y=540)
         
         #-----------------------------------------------------------------------------------------------------------
-        # #Crosswalks data entry
-        # data_label_cw = LabelFrame(waypoints_frame, text="Crosswalk entry", bg="#1e1e1e", fg="#ffffff")
-        # data_label_cw.place(x=10, y=270)
+        #Crosswalks data entry
+        waypoints_frame = Frame(crosswalk_tab, width=680, height=580, bg="#1e1e1e", highlightbackground="#1c1c1e", highlightthickness=1)
+        waypoints_frame.place(x=10, y=10)
         
-        # xyz_label_cw = Label(data_label_cw, text="Position(RViz)", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=0, columnspan=2, sticky="e", padx=(5,100), pady=10)
+        data_label_cw = LabelFrame(waypoints_frame, text="Crosswalk entry", bg="#1e1e1e", fg="#ffffff")
+        data_label_cw.place(x=10, y=5)
         
-        # x_label_cw = Label(data_label_cw, text="X:", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=1, sticky="e", padx=(60,5), pady=10)
-        # y_label_cw = Label(data_label_cw, text="Y:", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=2, sticky="e", padx=(60,5), pady=10)
-        # z_label_cw = Label(data_label_cw, text="Z:", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=3, sticky="e", padx=(60,5), pady=10)
-        # yaw_lebel = Label(data_label_cw, text="Yaw angle():", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=4, sticky="e", padx=(50,5), pady=10)
-         
-        # self.x_var_cw = DoubleVar()
-        # self.y_var_cw = DoubleVar()
-        # self.z_var_cw = DoubleVar()
-        # self.yaw_var = DoubleVar()
-        # x_entry_cw = Entry(data_label_cw, textvariable= self.x_var_cw).grid(column=4, row=1, sticky="w", padx=(5,40), pady=10)     
-        # y_entry_cw = Entry(data_label_cw, textvariable= self.y_var_cw).grid(column=4, row=2, sticky="w", padx=(5,40), pady=10)     
-        # z_entry_cw = Entry(data_label_cw, textvariable= self.z_var_cw).grid(column=4, row=3, sticky="w", padx=(5,40), pady=10)
-        # yaw_entry = Entry(data_label_cw, textvariable= self.yaw_var).grid(column=4, row=4, sticky="w", padx=(5,40), pady=10)
+        xy_label_cw = Label(data_label_cw, text="Position(RViz)", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=0, columnspan=2, sticky="e", padx=(5,175), pady=10)
         
-        # name_label_cw = Label(data_label_cw, text="Name:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=0, sticky="e", padx=(40,5), pady=10)
-        # speed_label_cw = Label(data_label_cw, text="Speed:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
-        # aceleration_label_cw=  Label(data_label_cw, text="Aceleration:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
-        # navigation_mode_label_cw = Label(data_label_cw, text="Nav. mode:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=3, sticky="e", padx=(40,5), pady=10)
-        # width_label = Label(data_label_cw, text="Widht:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=4, sticky="e", padx=(40,5), pady=10)
-        # lenght_label = Label(data_label_cw, text="Lenght:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=5, sticky="e", padx=(40,5), pady=10)
-       
-        # self.name_var_cw = StringVar()
-        # self.speed_var_cw = DoubleVar()
-        # self.aceleration_var_cw = DoubleVar()
-        # self.navigation_mode_var_cw = IntVar()
-        # self.width_var = DoubleVar()
-        # self.lenght_var = DoubleVar()
-        # name_entry_cw = Entry(data_label_cw, textvariable= self.name_var_cw).grid(column=1, row=0, sticky="w")
-        # speed_entry_cw = Entry(data_label_cw, textvariable= self.speed_var_cw).grid(column=1, row=1, sticky="w")
-        # aceleration_entry_cw = Entry(data_label_cw, textvariable= self.aceleration_var_cw).grid(column=1, row=2, sticky="w")
-        # navigation_mode_entry_cw = ttk.Combobox(data_label_cw, textvariable= self.navigation_mode_var_cw, values= ["0", "1"]).grid(column=1, row=3, sticky="w")
-        # width_entry = Entry(data_label_cw, textvariable= self.width_var).grid(column=1, row=4, sticky="w")
-        # lenght_entry = Entry(data_label_cw, textvariable= self.lenght_var).grid(column=1, row=5, sticky="w")
+        x_label_cw = Label(data_label_cw, text="X:", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=1, sticky="e", padx=(60,5), pady=10)
+        y_label_cw = Label(data_label_cw, text="Y:", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=2, sticky="e", padx=(60,5), pady=10)
+
+        self.x_var_cw = DoubleVar()
+        self.y_var_cw = DoubleVar()
+        x_entry_cw = Entry(data_label_cw, textvariable= self.x_var_cw).grid(column=4, row=1, sticky="w", padx=(5,105), pady=10)     
+        y_entry_cw = Entry(data_label_cw, textvariable= self.y_var_cw).grid(column=4, row=2, sticky="w", padx=(5,105), pady=10)     
+
+        height_label = Label(data_label_cw, text="Height:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=0, sticky="e", padx=(40,5), pady=10)
+        width_label = Label(data_label_cw, text="Widht:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
+        yaw_lebel = Label(data_label_cw, text="Yaw angle():", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
+        mode_label = Label(data_label_cw, text="Mode:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=3, sticky="e", padx=(40,5), pady=10)
         
-        # create_button_cw = Button(data_label_cw, text="Create", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("create_cw"))
-        # clear_button_cw = Button(data_label_cw, text="Clear", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("clear_data_cw"))
-        # create_button_cw.grid(column=4, row=5, sticky="w", pady=10)
-        # clear_button_cw.grid(column=4, row=5, sticky="e", padx=(5,30), pady=10)
+        self.height_var = DoubleVar()
+        self.width_var = DoubleVar()
+        self.yaw_var = DoubleVar()
+        self.mode_var = DoubleVar()
+        mode_entry = Entry(data_label_cw, textvariable= self.mode_var).grid(column=1, row=0, sticky="w")
+        width_entry = Entry(data_label_cw, textvariable= self.width_var).grid(column=1, row=1, sticky="w")
+        height_entry = Entry(data_label_cw, textvariable= self.height_var).grid(column=1, row=2, sticky="w")
+        yaw_entry = Entry(data_label_cw, textvariable= self.yaw_var).grid(column=1, row=3, sticky="w")
         
-       
+        create_button_cw = Button(data_label_cw, text="Create", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("create_cw"))
+        clear_button_cw = Button(data_label_cw, text="Clear", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("clear_data_cw"))
+        create_button_cw.grid(column=4, row=3, sticky="e", padx=(0,90), pady=10)
+        clear_button_cw.grid(column=4, row=3, sticky="e", padx=(0,10), pady=10)
         
+        #-----------------------------------------------------------------------------------------------------------
+        #crosswalk list display       
+        columns2 = ("x", "y", "Height", "Width", "Yaw", "Mode")
+        
+        self.tree2 = ttk.Treeview(waypoints_frame, selectmode="browse", columns=columns2, show="headings")
+        self.tree2.place(x=10, y=220, width=645, height=260)
+    
+        #Define columns format
+        self.tree2.column("x", anchor=E, width=120)
+        self.tree2.column("y", anchor=E, width=120)
+        self.tree2.column("Height", anchor=W, width=100)
+        self.tree2.column("Width", anchor=W, width=100)
+        self.tree2.column("Yaw", anchor=CENTER, width=120)
+        self.tree2.column("Mode", anchor=CENTER, width=145)
+        
+        #Define headings format
+        self.tree2.heading("x", text="x", anchor=W)
+        self.tree2.heading("y", text="y", anchor=W)
+        self.tree2.heading("Height", text="Height", anchor=W)
+        self.tree2.heading("Width", text="Width", anchor=W)
+        self.tree2.heading("Yaw", text="Yaw", anchor=CENTER)
+        self.tree2.heading("Mode", text="Mode", anchor=CENTER)
+        
+        #Creating srollbars
+        vs2 = ttk.Scrollbar(waypoints_frame, orient="vertical", command=self.tree2.yview)
+        self.tree2.configure(yscrollcommand=vs2.set)
+        vs2.place(x=655, y=220, height=260)
+        
+        hs2 = ttk.Scrollbar(waypoints_frame, orient="horizontal", command=self.tree2.xview)
+        self.tree2.configure(xscrollcommand=hs2.set)
+        hs2.place(x=10, y=465, width=645)
+        
+        #Control Buttons
+        # save_wp = Button(waypoints_frame, text="Save waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.save_waypoints_list)
+        # load_wp = Button(waypoints_frame, text="Load waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.load_waypoints_list)
+        delete_cw = Button(waypoints_frame, text="Delete waypoint", bg="#1e1e1e", fg="#ffffff", command=self.delete_crosswalk)
+        # save_wp.place(x=340, y=420)
+        # load_wp.place(x=510, y=420)
+        delete_cw.place(x=510, y=495)   
+        
+        #-----------------------------------------------------------------------------------------------------------
         # #Crosswalk publisher
         # pub_crosswalk_label = LabelFrame(display_tab, text="Crosswalk publisher", width=680, height=80, bg="#1e1e1e", fg="#ffffff")
         # pub_crosswalk_label.place(x=10, y=500)
@@ -387,35 +407,31 @@ class Application():
         elif msg == "clear_data_wp":
             self.x_var.set("")     
             self.y_var.set("")      
-            self.z_var.set("") 
-            self.name_var.set("") 
+            self.z_var.set("")  
             self.speed_var.set("") 
-            self.aceleration_var.set("") 
-            self.navigation_mode_var.set("") 
+            self.aceleration_var.set("")
+            self.id_crosswalk_var.set(0)
+            self.nav_mode_var.set(0) 
         elif msg == "create_wp":
             self.add_waypoint()
         elif msg == "clear_data_cw":
             self.x_var_cw.set("")     
             self.y_var_cw.set("")      
-            self.z_var_cw.set("") 
-            self.name_var_cw.set("") 
-            self.speed_var_cw.set("") 
-            self.aceleration_var_cw.set("") 
-            self.navigation_mode_var_cw.set("")
+            self.height_var.set("")
             self.width_var.set("")
-            self.lenght_var.set("")
+            self.mode_var.set("")
             self.yaw_var.set("")
         elif msg == "create_cw":
             self.add_crosswalk()
-        elif msg == "start_pub_cw":
-            self.publish_crosswalks = True
-            self.pub_cw_status_label.config(fg="#27ae60")
-            self.pub_cw_status.set("ON")
-            self.publish_method()
-        elif msg == "stop_pub_cw":
-            self.publish_crosswalks = False
-            self.pub_cw_status_label.config(fg="#9e3636")
-            self.pub_cw_status.set("OFF")
+        # elif msg == "start_pub_cw":
+        #     self.publish_crosswalks = True
+        #     self.pub_cw_status_label.config(fg="#27ae60")
+        #     self.pub_cw_status.set("ON")
+        #     self.publish_method()
+        # elif msg == "stop_pub_cw":
+        #     self.publish_crosswalks = False
+        #     self.pub_cw_status_label.config(fg="#9e3636")
+        #     self.pub_cw_status.set("OFF")
 
     def file_to_path(self):
         
@@ -583,60 +599,66 @@ class Application():
 
     def add_waypoint(self):
         
-        name = self.name_var.get()
         x = self.x_var.get()
         y = self.y_var.get()
         z = self.z_var.get()
         speed = self.speed_var.get()
         aceleration = self.aceleration_var.get()
-        navigation_mode = self.navigation_mode_var.get()
+        id_crosswalk = self.id_crosswalk_var.get()
+        navigation_mode = self.nav_mode_var.get()
+
+        self.waypoints_list.append(WayPoint(x, y, z, speed, aceleration, id_crosswalk, navigation_mode))
         
-        self.waypoints_list.append(WayPoint(name, x, y, z, speed, aceleration, navigation_mode))
-        
-        values = (name, x, y, z, speed, aceleration, self.waypoints_list[-1].id_crosswalk, navigation_mode)
+        for i in range(len(self.waypoints_list)):
+                self.waypoints_list[i].ascending_number = i*5
+                        
+        values = (x, y, z, speed, aceleration, id_crosswalk, navigation_mode)
         self.tree.insert(parent='',index="end", values=values)
-        
-        messagebox.showinfo("Waypoint", "You have created a waypoint.")
 
     def add_crosswalk(self):
 
-        name = self.name_var_cw.get()
         x = self.x_var_cw.get()
         y = self.y_var_cw.get()
-        z = self.z_var_cw.get()
-        speed = self.speed_var_cw.get()
-        aceleration = self.aceleration_var_cw.get()
-        navigation_mode = self.navigation_mode_var_cw.get()
-        yaw = self.yaw_var.get()
+        height = self.height_var.get()
         width = self.width_var.get()
-        lenght = self.lenght_var.get()
+        yaw = self.yaw_var.get()
+        mode = self.mode_var.get()
         
-        self.waypoints_list.append(CrossWalk(name, x, y, z, speed, aceleration, -1, navigation_mode, width, lenght, yaw))
-        self.crosswalks.markers.append(self.waypoints_list[-1].get_marker(self.crosswalk_ids))
-        self.crosswalk_ids.append(self.crosswalks.markers[-1].id)
+        ids = []
+        for i in self.crosswalk_list:
+            ids.append(i.marker.id)
+            
+        self.crosswalk_list.append(CrossWalk(x, y, height, width, yaw, mode, ids))
         
-        values = (name, x, y, z, speed, aceleration, self.waypoints_list[-1].id_crosswalk, navigation_mode)
-        self.tree.insert(parent='',index="end", values=values)
-        
-        messagebox.showinfo("Crosswalk", "You have created a crosswalk zone.")
-
+        values = (x, y, height, width, yaw, mode)
+        self.tree2.insert(parent='',index="end", values=values)
+         
     def delete_waypoint(self):
         
         selected = self.tree.focus()
         aux_tuple = self.tree.item(selected, 'values')
         tree = self.tree.delete(selected)
         
-        for i in self.waypoints_list:
-            
+        for i in self.waypoints_list: 
             if i.get_tuple() == aux_tuple:
-
                 self.waypoints_list.remove(i)
-                for n in self.crosswalks.markers:
-                    
-                    if str(n.id) == i.get_tuple()[6]:
-
-                        self.crosswalks.markers.remove(n)
-                        self.crosswalk_ids.remove(n.id)
+                break
+        
+        for i in range(len(self.waypoints_list)):
+            self.waypoints_list[i].ascending_number = i*5
+            
+    def delete_crosswalk(self):
+    
+        selected = self.tree2.focus()
+        aux_tuple = self.tree2.item(selected, 'values')
+        tree = self.tree2.delete(selected)
+        
+        for i in self.crosswalk_list: 
+            if i.get_tuple() == aux_tuple:
+                self.crosswalk_list.remove(i)
+                break
+    
+        #Falta por añadir que se borre el marker de rviz cuando realizamos esta accion
 
     def save_waypoints_list(self):
         
