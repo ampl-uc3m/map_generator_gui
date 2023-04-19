@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 from tkinter import*
-from tkinter import ttk,filedialog,messagebox
+from tkinter import ttk,filedialog
 import rospy
 import numpy as np
 import tf
+import yaml
 from nav_msgs.msg import Path,Odometry
 from std_msgs.msg import Float64
 from geometry_msgs.msg import PoseStamped,PointStamped
@@ -43,7 +44,7 @@ class CrossWalk():
         
         self.marker.header.frame_id = "map"
         
-        self.marker.ns = "crosswalk zones"
+        self.marker.ns = "threat areas"
         self.marker.type = 1                 #CUBE
         self.marker.action = 0               #ADD/MODIFY
         self.marker.id = 0
@@ -72,12 +73,12 @@ class CrossWalk():
         self.marker.color.b = 0
         self.marker.color.a = 0.5
         
-        self.marker.lifetime = rospy.Duration(0)
+        self.marker.lifetime = rospy.Duration(2.0)
         self.marker.frame_locked = True
 
     def get_tuple(self):
             
-            tup = (str(self.x), str(self.y), str(self.height), str(self.width), str(self.yaw), str(self.mode))
+            tup = (str(self.x), str(self.y), str(self.height), str(self.width), str(round(self.yaw)), str(self.mode))
             return tup
     
 class Application():
@@ -86,6 +87,7 @@ class Application():
         
         self.waypoints_list = []
         self.crosswalk_list = []
+        self.markers = MarkerArray()
         self.record = False
         self.publish_path = False
         self.publish_crosswalks = False
@@ -114,7 +116,7 @@ class Application():
         position_sub = rospy.Subscriber("/clicked_point", PointStamped, self.set_position_cb)
         
         self.pub_position = rospy.Publisher("bezier_path", Path, queue_size=1)
-        self.marker_pub = rospy.Publisher("Crosswalk_zones", MarkerArray, queue_size=1)
+        self.marker_pub = rospy.Publisher("threat_areas", MarkerArray, queue_size=1)
        
         self.path_lanes = rospy.get_param("~publish_lanes", True)
         if self.path_lanes:
@@ -129,7 +131,7 @@ class Application():
     
         #root config
         self.root = Tk()
-        self.root.title("GUI path node")
+        self.root.title("Digital map")
         self.root.geometry("700x625")
         self.root.config(bg="#323030")
         self.root.resizable(False,False)
@@ -143,7 +145,7 @@ class Application():
         waypoints_tab = Frame(tabControl, bg="#323030")
         crosswalk_tab = Frame(tabControl, bg="#323030")
         
-        tabControl.add(paths_tab, text="Path Saver")
+        tabControl.add(paths_tab, text="Paths")
         tabControl.add(waypoints_tab, text="WayPoints")
         tabControl.add(crosswalk_tab, text="Crosswalks")
         
@@ -252,17 +254,17 @@ class Application():
         self.tree.column("x", anchor=W, width=120)
         self.tree.column("y", anchor=W, width=120)
         self.tree.column("z", anchor=W, width=120)
-        self.tree.column("Speed", anchor=W, width=100)
-        self.tree.column("Aceleration", anchor=W, width=100)
+        self.tree.column("Speed", anchor=W, width=120)
+        self.tree.column("Aceleration", anchor=W, width=120)
         self.tree.column("ID Crosswalk", anchor=CENTER, width=120)
-        self.tree.column("Navigation Mode", anchor=CENTER, width=145)
+        self.tree.column("Navigation Mode", anchor=CENTER, width=120)
         
         #Define headings format
-        self.tree.heading("x", text="x", anchor=W)
-        self.tree.heading("y", text="y", anchor=W)
-        self.tree.heading("z", text="z", anchor=W)
-        self.tree.heading("Speed", text="Speed", anchor=W)
-        self.tree.heading("Aceleration", text="Aceleration", anchor=W)
+        self.tree.heading("x", text="X", anchor=CENTER)
+        self.tree.heading("y", text="Y", anchor=CENTER)
+        self.tree.heading("z", text="Z", anchor=CENTER)
+        self.tree.heading("Speed", text="Speed", anchor=CENTER)
+        self.tree.heading("Aceleration", text="Aceleration", anchor=CENTER)
         self.tree.heading("ID Crosswalk", text="ID Crosswalk", anchor=CENTER)
         self.tree.heading("Navigation Mode", text="Navigation Mode", anchor=CENTER)
         
@@ -276,19 +278,19 @@ class Application():
         hs.place(x=10, y=510, width=645)
         
         #Control Buttons
-        # save_wp = Button(waypoints_frame, text="Save waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.save_waypoints_list)
-        # load_wp = Button(waypoints_frame, text="Load waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.load_waypoints_list)
+        save_wp = Button(waypoints_frame, text="Generate \".yaml\"", bg="#1e1e1e", fg="#ffffff", command=self.save_yaml)
+        load_wp = Button(waypoints_frame, text="Load \".yaml\"", bg="#1e1e1e", fg="#ffffff", command=self.load_yaml)
         delete_wp = Button(waypoints_frame, text="Delete waypoint", bg="#1e1e1e", fg="#ffffff", command=self.delete_waypoint)
-        # save_wp.place(x=340, y=420)
-        # load_wp.place(x=510, y=420)
-        delete_wp.place(x=510, y=540)
+        save_wp.place(x=405, y=535)
+        load_wp.place(x=557, y=535)
+        delete_wp.place(x=10, y=535)
         
         #-----------------------------------------------------------------------------------------------------------
         #Crosswalks data entry
-        waypoints_frame = Frame(crosswalk_tab, width=680, height=580, bg="#1e1e1e", highlightbackground="#1c1c1e", highlightthickness=1)
-        waypoints_frame.place(x=10, y=10)
+        crosswalks_frame = Frame(crosswalk_tab, width=680, height=580, bg="#1e1e1e", highlightbackground="#1c1c1e", highlightthickness=1)
+        crosswalks_frame.place(x=10, y=10)
         
-        data_label_cw = LabelFrame(waypoints_frame, text="Crosswalk entry", bg="#1e1e1e", fg="#ffffff")
+        data_label_cw = LabelFrame(crosswalks_frame, text="Crosswalk entry", bg="#1e1e1e", fg="#ffffff")
         data_label_cw.place(x=10, y=5)
         
         xy_label_cw = Label(data_label_cw, text="Position(RViz)", bg="#1e1e1e", fg="#ffffff").grid(column=3, row=0, columnspan=2, sticky="e", padx=(5,175), pady=10)
@@ -298,22 +300,22 @@ class Application():
 
         self.x_var_cw = DoubleVar()
         self.y_var_cw = DoubleVar()
-        x_entry_cw = Entry(data_label_cw, textvariable= self.x_var_cw).grid(column=4, row=1, sticky="w", padx=(5,105), pady=10)     
-        y_entry_cw = Entry(data_label_cw, textvariable= self.y_var_cw).grid(column=4, row=2, sticky="w", padx=(5,105), pady=10)     
+        x_entry_cw = Entry(data_label_cw, textvariable= self.x_var_cw).grid(column=4, row=1, sticky="w", padx=(5,78), pady=10)     
+        y_entry_cw = Entry(data_label_cw, textvariable= self.y_var_cw).grid(column=4, row=2, sticky="w", padx=(5,78), pady=10)     
 
         height_label = Label(data_label_cw, text="Height:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=0, sticky="e", padx=(40,5), pady=10)
         width_label = Label(data_label_cw, text="Widht:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
-        yaw_lebel = Label(data_label_cw, text="Yaw angle():", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
+        yaw_lebel = Label(data_label_cw, text="Yaw (Degrees):", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
         mode_label = Label(data_label_cw, text="Mode:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=3, sticky="e", padx=(40,5), pady=10)
         
         self.height_var = DoubleVar()
         self.width_var = DoubleVar()
         self.yaw_var = DoubleVar()
         self.mode_var = DoubleVar()
-        mode_entry = Entry(data_label_cw, textvariable= self.mode_var).grid(column=1, row=0, sticky="w")
+        height_entry = Entry(data_label_cw, textvariable= self.height_var).grid(column=1, row=0, sticky="w")
         width_entry = Entry(data_label_cw, textvariable= self.width_var).grid(column=1, row=1, sticky="w")
-        height_entry = Entry(data_label_cw, textvariable= self.height_var).grid(column=1, row=2, sticky="w")
-        yaw_entry = Entry(data_label_cw, textvariable= self.yaw_var).grid(column=1, row=3, sticky="w")
+        yaw_entry = Entry(data_label_cw, textvariable= self.yaw_var).grid(column=1, row=2, sticky="w")
+        mode_entry = ttk.Combobox(data_label_cw, textvariable= self.mode_var, values= ["0.0", "1.0"]).grid(column=1, row=3, sticky="w")
         
         create_button_cw = Button(data_label_cw, text="Create", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("create_cw"))
         clear_button_cw = Button(data_label_cw, text="Clear", width=4, bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("clear_data_cw"))
@@ -324,56 +326,56 @@ class Application():
         #crosswalk list display       
         columns2 = ("x", "y", "Height", "Width", "Yaw", "Mode")
         
-        self.tree2 = ttk.Treeview(waypoints_frame, selectmode="browse", columns=columns2, show="headings")
-        self.tree2.place(x=10, y=220, width=645, height=260)
+        self.tree2 = ttk.Treeview(crosswalks_frame, selectmode="browse", columns=columns2, show="headings")
+        self.tree2.place(x=10, y=220, width=645, height=230)
     
         #Define columns format
-        self.tree2.column("x", anchor=E, width=120)
-        self.tree2.column("y", anchor=E, width=120)
-        self.tree2.column("Height", anchor=W, width=100)
-        self.tree2.column("Width", anchor=W, width=100)
-        self.tree2.column("Yaw", anchor=CENTER, width=120)
-        self.tree2.column("Mode", anchor=CENTER, width=145)
+        self.tree2.column("x", anchor=W, width=120)
+        self.tree2.column("y", anchor=W, width=120)
+        self.tree2.column("Height", anchor=W, width=120)
+        self.tree2.column("Width", anchor=W, width=120)
+        self.tree2.column("Yaw", anchor=W, width=120)
+        self.tree2.column("Mode", anchor=CENTER, width=120)
         
         #Define headings format
-        self.tree2.heading("x", text="x", anchor=W)
-        self.tree2.heading("y", text="y", anchor=W)
-        self.tree2.heading("Height", text="Height", anchor=W)
-        self.tree2.heading("Width", text="Width", anchor=W)
+        self.tree2.heading("x", text="X", anchor=CENTER)
+        self.tree2.heading("y", text="Y", anchor=CENTER)
+        self.tree2.heading("Height", text="Height", anchor=CENTER)
+        self.tree2.heading("Width", text="Width", anchor=CENTER)
         self.tree2.heading("Yaw", text="Yaw", anchor=CENTER)
         self.tree2.heading("Mode", text="Mode", anchor=CENTER)
         
         #Creating srollbars
-        vs2 = ttk.Scrollbar(waypoints_frame, orient="vertical", command=self.tree2.yview)
+        vs2 = ttk.Scrollbar(crosswalks_frame, orient="vertical", command=self.tree2.yview)
         self.tree2.configure(yscrollcommand=vs2.set)
-        vs2.place(x=655, y=220, height=260)
+        vs2.place(x=655, y=220, height=230)
         
-        hs2 = ttk.Scrollbar(waypoints_frame, orient="horizontal", command=self.tree2.xview)
+        hs2 = ttk.Scrollbar(crosswalks_frame, orient="horizontal", command=self.tree2.xview)
         self.tree2.configure(xscrollcommand=hs2.set)
-        hs2.place(x=10, y=465, width=645)
+        hs2.place(x=10, y=435, width=645)
         
         #Control Buttons
-        # save_wp = Button(waypoints_frame, text="Save waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.save_waypoints_list)
-        # load_wp = Button(waypoints_frame, text="Load waypoints list", bg="#1e1e1e", fg="#ffffff", command=self.load_waypoints_list)
-        delete_cw = Button(waypoints_frame, text="Delete waypoint", bg="#1e1e1e", fg="#ffffff", command=self.delete_crosswalk)
-        # save_wp.place(x=340, y=420)
-        # load_wp.place(x=510, y=420)
-        delete_cw.place(x=510, y=495)   
+        save_yaml = Button(crosswalks_frame, text="Generate \".yaml\"", bg="#1e1e1e", fg="#ffffff", command=self.save_yaml)
+        load_yaml = Button(crosswalks_frame, text="Load \".yaml\"", bg="#1e1e1e", fg="#ffffff", command=self.load_yaml)
+        delete_cw = Button(crosswalks_frame, text="Delete waypoint", bg="#1e1e1e", fg="#ffffff", command=self.delete_crosswalk)
+        save_yaml.place(x=405, y=460)
+        load_yaml.place(x=557, y=460)
+        delete_cw.place(x=10, y=460)   
         
         #-----------------------------------------------------------------------------------------------------------
-        # #Crosswalk publisher
-        # pub_crosswalk_label = LabelFrame(display_tab, text="Crosswalk publisher", width=680, height=80, bg="#1e1e1e", fg="#ffffff")
-        # pub_crosswalk_label.place(x=10, y=500)
+        #Crosswalk publisher
+        pub_crosswalk_label = LabelFrame(crosswalks_frame, text="Crosswalk publisher", width=660, height=70, bg="#1e1e1e", fg="#ffffff")
+        pub_crosswalk_label.place(x=10, y=500)
         
-        # start_pub_cw = Button(pub_crosswalk_label, text="Publish crosswalks", bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("start_pub_cw"))
-        # stop_pub_cw = Button(pub_crosswalk_label, text="Stop publishing crosswalks", bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("stop_pub_cw"))
-        # start_pub_cw.place(x=120, y=10)
-        # stop_pub_cw.place(x=350, y=10)
+        start_pub_cw = Button(pub_crosswalk_label, text="Publish crosswalks", bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("start_pub_cw"))
+        stop_pub_cw = Button(pub_crosswalk_label, text="Stop publishing crosswalks", bg="#1e1e1e", fg="#ffffff", command=lambda:self.button_press("stop_pub_cw"))
+        start_pub_cw.place(x=20, y=10)
+        stop_pub_cw.place(x=190, y=10)
         
-        # self.pub_cw_status = StringVar()
-        # self.pub_cw_status.set("OFF")
-        # self.pub_cw_status_label = Label(pub_crosswalk_label, textvariable=self.pub_cw_status, font=("Arial", 15), bg="#1e1e1e", fg="#9e3636")
-        # self.pub_cw_status_label.place(x=30, y=10)
+        self.pub_cw_status = StringVar()
+        self.pub_cw_status.set("OFF")
+        self.pub_cw_status_label = Label(pub_crosswalk_label, textvariable=self.pub_cw_status, font=("Arial", 15), bg="#1e1e1e", fg="#9e3636")
+        self.pub_cw_status_label.place(x=520, y=10)
 
     def button_press(self, msg):
         
@@ -419,19 +421,19 @@ class Application():
             self.y_var_cw.set("")      
             self.height_var.set("")
             self.width_var.set("")
-            self.mode_var.set("")
             self.yaw_var.set("")
+            self.mode_var.set(0.0)
         elif msg == "create_cw":
             self.add_crosswalk()
-        # elif msg == "start_pub_cw":
-        #     self.publish_crosswalks = True
-        #     self.pub_cw_status_label.config(fg="#27ae60")
-        #     self.pub_cw_status.set("ON")
-        #     self.publish_method()
-        # elif msg == "stop_pub_cw":
-        #     self.publish_crosswalks = False
-        #     self.pub_cw_status_label.config(fg="#9e3636")
-        #     self.pub_cw_status.set("OFF")
+        elif msg == "start_pub_cw":
+            self.publish_crosswalks = True
+            self.pub_cw_status_label.config(fg="#27ae60")
+            self.pub_cw_status.set("ON")
+            self.publish_method()
+        elif msg == "stop_pub_cw":
+            self.publish_crosswalks = False
+            self.pub_cw_status_label.config(fg="#9e3636")
+            self.pub_cw_status.set("OFF")
 
     def file_to_path(self):
         
@@ -554,7 +556,7 @@ class Application():
         if self.publish_path or self.publish_crosswalks:
 
             if self.publish_crosswalks:
-                self.marker_pub.publish(self.crosswalks)
+                self.marker_pub.publish(self.markers)
             
             if self.publish_path:
                 self.pub_position.publish(self.path_msg)
@@ -629,6 +631,7 @@ class Application():
             ids.append(i.marker.id)
             
         self.crosswalk_list.append(CrossWalk(x, y, height, width, yaw, mode, ids))
+        self.markers.markers.append(self.crosswalk_list[-1].marker)
         
         values = (x, y, height, width, yaw, mode)
         self.tree2.insert(parent='',index="end", values=values)
@@ -655,98 +658,94 @@ class Application():
         
         for i in self.crosswalk_list: 
             if i.get_tuple() == aux_tuple:
+                self.markers.markers.remove(i.marker)
                 self.crosswalk_list.remove(i)
                 break
-    
-        #Falta por añadir que se borre el marker de rviz cuando realizamos esta accion
 
-    def save_waypoints_list(self):
+    def save_yaml(self):
         
         file_rute = filedialog.asksaveasfilename(title="Saving data to yaml file", defaultextension=".yaml", filetypes=[("yaml file", "*.yaml")])
         file = open(file_rute, "w+")  
            
-        file.write("[")
+        file.write("speed_limit_profile: [\n")
         for i in range(len(self.waypoints_list)):
-            file.write("[{} ".format(self.waypoints_list[i].name))
-            file.write(", {} ".format(self.waypoints_list[i].x))
-            file.write(", {} ".format(self.waypoints_list[i].y))
-            file.write(", {} ".format(self.waypoints_list[i].z)) 
-            file.write(", {} ".format(self.waypoints_list[i].speed)) 
-            file.write(", {} ".format(self.waypoints_list[i].aceleration))  
-            file.write(", {} ".format(self.waypoints_list[i].id_crosswalk)) 
+            file.write(" [{}".format(self.waypoints_list[i].x))
+            file.write(", {}".format(self.waypoints_list[i].y))
+            file.write(", {}".format(self.waypoints_list[i].z)) 
+            file.write(", {}".format(self.waypoints_list[i].speed)) 
+            file.write(", {}".format(self.waypoints_list[i].aceleration))  
+            file.write(", {}".format(self.waypoints_list[i].id_crosswalk)) 
+            file.write(", {}".format(self.waypoints_list[i].navigation_mode))
             
-            if type(self.waypoints_list[i]) == CrossWalk:
-                file.write(", {} ".format(self.waypoints_list[i].width))
-                file.write(", {} ".format(self.waypoints_list[i].lenght))
-                file.write(", {} ".format(self.waypoints_list[i].yaw))
-                           
             if i < (len(self.waypoints_list) - 1):
-                file.write(", {}],\n".format(self.waypoints_list[i].navigation_mode))
+                file.write(", {}],\n".format(self.waypoints_list[i].ascending_number))
             else:
-                file.write(", {}]".format(self.waypoints_list[i].navigation_mode))
-                
-        file.write("]")
+                file.write(", {}]\n".format(self.waypoints_list[i].ascending_number))
+        file.write("]\n\n")
+        
+        file.write("/ada/threat_areas: [\n")
+        for i in range(len(self.crosswalk_list)):
+            file.write(" [{}".format(self.crosswalk_list[i].x))
+            file.write(", {}".format(self.crosswalk_list[i].y))
+            file.write(", {}".format(self.crosswalk_list[i].height)) 
+            file.write(", {}".format(self.crosswalk_list[i].width)) 
+            file.write(", {}".format(round(np.deg2rad(self.crosswalk_list[i].yaw),2)))  
+
+            if i < (len(self.crosswalk_list) - 1):
+                file.write(", {}],\n".format(self.crosswalk_list[i].mode))
+            else:
+                file.write(", {}]\n".format(self.crosswalk_list[i].mode))
+        file.write("]\n\n")
+        
         file.close()
 
-    def load_waypoints_list(self):
+    def load_yaml(self):
         
         file_rute = filedialog.askopenfilename(title="Open path file", defaultextension=".yaml", filetypes=[("yaml file", "*.yaml")])
-        file= open(file_rute, "r")
-
-        fl =file.read().splitlines()
         
-        file.close()
+        with open(file_rute, "r") as f:
+            data = yaml.load(f, Loader=yaml.FullLoader)
+
+        wp = data["speed_limit_profile"]
+        cw = data["/ada/threat_areas"]
         
         self.waypoints_list.clear()
-        self.crosswalk_ids.clear()
-        self.crosswalks.markers.clear()
+        self.crosswalk_list.clear()
+        self.markers.markers.clear()
+        ids = []
         
-        for i in fl:
-            if i[:2] == "[[":
-                t = i[2:len(i)-2].split(" , ")
-                name = t[0]
-                x = float(t[1])
-                y = float(t[2])
-                z = float(t[3])
-                speed = float(t[4])
-                aceleration = float(t[5])
-                id_crosswalk = int(t[6])
-                if id_crosswalk == -1:
-                    navigation_mode = int(t[7])
-                else:
-                    self.crosswalk_ids.append(id_crosswalk)
-                    width = float(t[7])
-                    lenght = float(t[8])
-                    yaw = float(t[9])
-                    navigation_mode = int(t[10])
-            else:
-                t = i[1:len(i)-2].split(" , ")
-                name = t[0]
-                x = float(t[1])
-                y = float(t[2])
-                z = float(t[3])
-                speed = float(t[4])
-                aceleration = float(t[5])
-                id_crosswalk = int(t[6])
-                if id_crosswalk == -1:
-                    navigation_mode = int(t[7])
-                else:
-                    self.crosswalk_ids.append(id_crosswalk)
-                    width = float(t[7])
-                    lenght = float(t[8])
-                    yaw = float(t[9])
-                    navigation_mode = int(t[10])
-            
-            if id_crosswalk == -1:
-                self.waypoints_list.append(WayPoint(name, x, y, z, speed, aceleration, navigation_mode))
-            else:
-                self.waypoints_list.append(CrossWalk(name, x, y, z, speed, aceleration, id_crosswalk, navigation_mode, width, lenght, yaw))
-                self.crosswalks.markers.append(self.waypoints_list[-1].get_marker(self.crosswalk_ids))
+        for i in range(len(wp)):
+                x = wp[i][0]
+                y = wp[i][1]
+                z = wp[i][2]
+                speed = wp[i][3]
+                aceleration = wp[i][4]
+                id_crosswalk = wp[i][5]
+                mode = wp[i][6]
+                self.waypoints_list.append(WayPoint(x, y, z, speed, aceleration, id_crosswalk, mode))
+        
+        for i in range(len(self.waypoints_list)):
+            self.waypoints_list[i].ascending_number = i*5        
+        
+        for i in range(len(cw)):
+                x = cw[i][0]
+                y = cw[i][1]
+                height = cw[i][2]
+                width= cw[i][3]
+                yaw = np.rad2deg(cw[i][4])
+                mode = cw[i][5]
+                self.crosswalk_list.append(CrossWalk(x, y, height, width, yaw, mode, ids))
+                ids.append(i)
+                self.markers.markers.append(self.crosswalk_list[i].marker)
         
         self.tree.delete(*self.tree.get_children())
+        self.tree2.delete(*self.tree2.get_children())
         
         for i in self.waypoints_list:
             self.tree.insert(parent='',index="end", values=i.get_tuple())
+        
+        for i in self.crosswalk_list:
+            self.tree2.insert(parent='',index="end", values=i.get_tuple())
 
     def odom_cb(self, message):
         
@@ -781,18 +780,17 @@ class Application():
         self.current_steering = message.data                
 
     def set_position_cb(self, message):
-        self.x_var.set(message.point.x)
-        self.y_var.set(message.point.y)
-        self.z_var.set(message.point.z)
+        self.x_var.set(round(message.point.x,2))
+        self.y_var.set(round(message.point.y,2))
+        self.z_var.set(round(message.point.z,2))
         
-        self.x_var_cw.set(message.point.x)
-        self.y_var_cw.set(message.point.y)
-        self.z_var_cw.set(message.point.z)
+        self.x_var_cw.set(round(message.point.x,2))
+        self.y_var_cw.set(round(message.point.y,2))
 
 if __name__ == "__main__":
 
-    rospy.init_node("GUI_path")
-    rospy.loginfo("GUI_path node has been started") 
+    rospy.init_node("digital_map_GUI")
+    rospy.loginfo("digital_map_GUI node has been started") 
     app = Application()
 
     app.root.mainloop()
