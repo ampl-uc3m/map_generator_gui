@@ -553,18 +553,14 @@ class Application():
 
     def publish_method(self):
         
-        if self.publish_path or self.publish_crosswalks:
-
-            if self.publish_crosswalks:
-                self.marker_pub.publish(self.markers)
-            
-            if self.publish_path:
-                self.pub_position.publish(self.path_msg)
-                
-                if self.path_lanes:
-                    self.pub_l.publish(self.l_path)
-                    self.pub_r.publish(self.r_path)
-            self.root.after(1000, self.publish_method)
+        if self.publish_crosswalks:
+            self.marker_pub.publish(self.markers)
+        if self.publish_path:
+            self.pub_position.publish(self.path_msg)
+            if self.path_lanes:
+                self.pub_l.publish(self.l_path)
+                self.pub_r.publish(self.r_path)
+        self.root.after(1000, self.publish_method)
 
     def path_saver(self):
         
