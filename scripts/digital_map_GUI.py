@@ -560,7 +560,8 @@ class Application():
             if self.path_lanes:
                 self.pub_l.publish(self.l_path)
                 self.pub_r.publish(self.r_path)
-        self.root.after(1000, self.publish_method)
+        if self.publish_path or self.publish_crosswalks:
+            self.root.after(1000, self.publish_method)
 
     def path_saver(self):
         
