@@ -78,7 +78,7 @@ class CrossWalk():
 
     def get_tuple(self):
             
-            tup = (str(self.x), str(self.y), str(self.height), str(self.width), str(round(self.yaw)), str(self.mode))
+            tup = (str(self.x), str(self.y), str(self.height), str(self.width), str(round(self.yaw, 1)), str(self.mode))
             return tup
     
 class Application():
@@ -630,7 +630,7 @@ class Application():
         self.crosswalk_list.append(CrossWalk(x, y, height, width, yaw, mode, ids))
         self.markers.markers.append(self.crosswalk_list[-1].marker)
         
-        values = (x, y, height, width, yaw, mode)
+        values = (x, y, height, width, round(yaw, 1), mode)
         self.tree2.insert(parent='',index="end", values=values)
          
     def delete_waypoint(self):
@@ -654,6 +654,7 @@ class Application():
         tree = self.tree2.delete(selected)
         
         for i in self.crosswalk_list: 
+
             if i.get_tuple() == aux_tuple:
                 self.markers.markers.remove(i.marker)
                 self.crosswalk_list.remove(i)
