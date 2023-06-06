@@ -304,7 +304,7 @@ class Application():
         y_entry_cw = Entry(data_label_cw, textvariable= self.y_var_cw).grid(column=4, row=2, sticky="w", padx=(5,78), pady=10)     
 
         height_label = Label(data_label_cw, text="Height:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=0, sticky="e", padx=(40,5), pady=10)
-        width_label = Label(data_label_cw, text="Widht:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
+        width_label = Label(data_label_cw, text="Width:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=1, sticky="e", padx=(40,5), pady=10)
         yaw_lebel = Label(data_label_cw, text="Yaw (Degrees):", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=2, sticky="e", padx=(40,5), pady=10)
         mode_label = Label(data_label_cw, text="Mode:", bg="#1e1e1e", fg="#ffffff").grid(column=0, row=3, sticky="e", padx=(40,5), pady=10)
         
