@@ -92,10 +92,6 @@ class Application():
         self.publish_path = False
         self.publish_crosswalks = False
         
-        self.path_msg = Path()
-        self.l_path = Path()
-        self.r_path = Path()
-     
         #-----------------------------------------------------
         
         self.x = []
@@ -200,7 +196,7 @@ class Application():
         self.file_route = StringVar()
         route_label = Label(path_publisher_label, textvariable=self.file_route, bg="#1e1e1e", fg="#27ae60").place(x=10, y=225)
         
-        save_button = Button(path_publisher_label, text="Load path file", bg="#1e1e1e", fg="#ffffff", command=self.file_to_path).place(x=530, y=200)
+        load_button = Button(path_publisher_label, text="Load path file", bg="#1e1e1e", fg="#ffffff", command=self.file_to_path).place(x=530, y=200)
         
         #-----------------------------------------------------------------------------------------------------------
         #Waypoints data entry
@@ -464,6 +460,10 @@ class Application():
         i=0
         frame_id = rospy.get_param("~frame", "map")
 
+        self.path_msg = Path()
+        self.l_path = Path()
+        self.r_path = Path()
+        
         self.path_msg.header.frame_id = frame_id
         self.l_path.header.frame_id = frame_id
         self.r_path.header.frame_id = frame_id
