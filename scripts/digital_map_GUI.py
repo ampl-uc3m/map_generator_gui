@@ -685,8 +685,8 @@ class Application():
         for i in range(len(self.crosswalk_list)):
             file.write(" [{}".format(self.crosswalk_list[i].x))
             file.write(", {}".format(self.crosswalk_list[i].y))
-            file.write(", {}".format(self.crosswalk_list[i].height)) 
             file.write(", {}".format(self.crosswalk_list[i].width)) 
+            file.write(", {}".format(self.crosswalk_list[i].height)) 
             file.write(", {}".format(round(np.deg2rad(self.crosswalk_list[i].yaw),2)))  
 
             if i < (len(self.crosswalk_list) - 1):
@@ -728,8 +728,8 @@ class Application():
         for i in range(len(cw)):
                 x = cw[i][0]
                 y = cw[i][1]
-                height = cw[i][2]
-                width= cw[i][3]
+                width = cw[i][2]
+                height= cw[i][3]
                 yaw = np.rad2deg(cw[i][4])
                 mode = cw[i][5]
                 self.crosswalk_list.append(CrossWalk(x, y, height, width, yaw, mode, ids))
