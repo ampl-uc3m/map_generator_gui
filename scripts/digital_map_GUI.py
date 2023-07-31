@@ -1,14 +1,175 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 from tkinter import*
 from tkinter import ttk,filedialog
 import rospy
+import math
 import numpy as np
-import tf
+#import tf
 import yaml
 from nav_msgs.msg import Path,Odometry
 from std_msgs.msg import Float64
 from geometry_msgs.msg import PoseStamped,PointStamped
 from visualization_msgs.msg import Marker,MarkerArray
+
+_EPS = np.finfo(float).eps * 4.0
+
+def quaternion_matrix(quaternion):
+    """ Function copied from tf.transformations module.
+    Return homogeneous rotation matrix from quaternion.
+    >>> R = quaternion_matrix([0.06146124, 0, 0, 0.99810947])
+    >>> np.allclose(R, rotation_matrix(0.123, (1, 0, 0)))
+    True
+    """
+    _EPS = np.finfo(float).eps * 4.0
+    q = np.array(quaternion[:4], dtype=np.float64, copy=True)
+    nq = np.dot(q, q)
+    if nq < _EPS:
+        return np.identity(4)
+    q *= np.sqrt(2.0 / nq)
+    q = np.outer(q, q)
+    return np.array(
+        (
+            (1.0-q[1, 1]-q[2, 2], q[0, 1]-q[2, 3],     q[0, 2]+q[1, 3],     0.0),
+            (q[0, 1]+q[2, 3],     1.0-q[0, 0]-q[2, 2], q[1, 2]-q[0, 3],     0.0),
+            (q[0, 2]-q[1, 3],     q[1, 2]+q[0, 3],     1.0-q[0, 0]-q[1, 1], 0.0),
+            (0.0,                 0.0,                 0.0,                 1.0)
+        ),
+        dtype=np.float64
+    )
+
+# axis sequences for Euler angles
+_NEXT_AXIS = [1, 2, 0, 1]
+
+# map axes strings to/from tuples of inner axis, parity, repetition, frame
+_AXES2TUPLE = {
+    'sxyz': (0, 0, 0, 0), 'sxyx': (0, 0, 1, 0), 'sxzy': (0, 1, 0, 0),
+    'sxzx': (0, 1, 1, 0), 'syzx': (1, 0, 0, 0), 'syzy': (1, 0, 1, 0),
+    'syxz': (1, 1, 0, 0), 'syxy': (1, 1, 1, 0), 'szxy': (2, 0, 0, 0),
+    'szxz': (2, 0, 1, 0), 'szyx': (2, 1, 0, 0), 'szyz': (2, 1, 1, 0),
+    'rzyx': (0, 0, 0, 1), 'rxyx': (0, 0, 1, 1), 'ryzx': (0, 1, 0, 1),
+    'rxzx': (0, 1, 1, 1), 'rxzy': (1, 0, 0, 1), 'ryzy': (1, 0, 1, 1),
+    'rzxy': (1, 1, 0, 1), 'ryxy': (1, 1, 1, 1), 'ryxz': (2, 0, 0, 1),
+    'rzxz': (2, 0, 1, 1), 'rxyz': (2, 1, 0, 1), 'rzyz': (2, 1, 1, 1)}
+
+_TUPLE2AXES = dict((v, k) for k, v in _AXES2TUPLE.items())
+
+# Copied from tf library
+def quaternion_from_euler(ai, aj, ak, axes='sxyz'):
+    """Return quaternion from Euler angles and axis sequence.
+    ai, aj, ak : Euler's roll, pitch and yaw angles
+    axes : One of 24 axis sequences as string or encoded tuple
+    >>> q = quaternion_from_euler(1, 2, 3, 'ryxz')
+    >>> np.allclose(q, [0.310622, -0.718287, 0.444435, 0.435953])
+    True
+    """
+    try:
+        firstaxis, parity, repetition, frame = _AXES2TUPLE[axes.lower()]
+    except (AttributeError, KeyError):
+        _ = _TUPLE2AXES[axes]
+        firstaxis, parity, repetition, frame = axes
+
+    i = firstaxis
+    j = _NEXT_AXIS[i+parity]
+    k = _NEXT_AXIS[i-parity+1]
+
+    if frame:
+        ai, ak = ak, ai
+    if parity:
+        aj = -aj
+
+    ai /= 2.0
+    aj /= 2.0
+    ak /= 2.0
+    ci = np.cos(ai)
+    si = np.sin(ai)
+    cj = np.cos(aj)
+    sj = np.sin(aj)
+    ck = np.cos(ak)
+    sk = np.sin(ak)
+    cc = ci*ck
+    cs = ci*sk
+    sc = si*ck
+    ss = si*sk
+
+    quaternion = np.empty((4, ), dtype=np.float64)
+    if repetition:
+        quaternion[i] = cj*(cs + sc)
+        quaternion[j] = sj*(cc + ss)
+        quaternion[k] = sj*(cs - sc)
+        quaternion[3] = cj*(cc - ss)
+    else:
+        quaternion[i] = cj*sc - sj*cs
+        quaternion[j] = cj*ss + sj*cc
+        quaternion[k] = cj*cs - sj*sc
+        quaternion[3] = cj*cc + sj*ss
+    if parity:
+        quaternion[j] *= -1
+
+    return quaternion
+
+
+def euler_from_matrix(matrix, axes='sxyz'):
+    """Return Euler angles from rotation matrix for specified axis sequence.
+    axes : One of 24 axis sequences as string or encoded tuple
+    Note that many Euler angle triplets can describe one matrix.
+    >>> R0 = euler_matrix(1, 2, 3, 'syxz')
+    >>> al, be, ga = euler_from_matrix(R0, 'syxz')
+    >>> R1 = euler_matrix(al, be, ga, 'syxz')
+    >>> np.allclose(R0, R1)
+    True
+    >>> angles = (4.0*math.pi) * (np.random.random(3) - 0.5)
+    >>> for axes in _AXES2TUPLE.keys():
+    ...    R0 = euler_matrix(axes=axes, *angles)
+    ...    R1 = euler_matrix(axes=axes, *euler_from_matrix(R0, axes))
+    ...    if not np.allclose(R0, R1): print axes, "failed"
+    """
+    try:
+        firstaxis, parity, repetition, frame = _AXES2TUPLE[axes.lower()]
+    except (AttributeError, KeyError):
+        _ = _TUPLE2AXES[axes]
+        firstaxis, parity, repetition, frame = axes
+
+    i = firstaxis
+    j = _NEXT_AXIS[i+parity]
+    k = _NEXT_AXIS[i-parity+1]
+
+    M = np.array(matrix, dtype=np.float64, copy=False)[:3, :3]
+    if repetition:
+        sy = math.sqrt(M[i, j]*M[i, j] + M[i, k]*M[i, k])
+        if sy > _EPS:
+            ax = math.atan2( M[i, j],  M[i, k])
+            ay = math.atan2( sy,       M[i, i])
+            az = math.atan2( M[j, i], -M[k, i])
+        else:
+            ax = math.atan2(-M[j, k],  M[j, j])
+            ay = math.atan2( sy,       M[i, i])
+            az = 0.0
+    else:
+        cy = math.sqrt(M[i, i]*M[i, i] + M[j, i]*M[j, i])
+        if cy > _EPS:
+            ax = math.atan2( M[k, j],  M[k, k])
+            ay = math.atan2(-M[k, i],  cy)
+            az = math.atan2( M[j, i],  M[i, i])
+        else:
+            ax = math.atan2(-M[j, k],  M[j, j])
+            ay = math.atan2(-M[k, i],  cy)
+            az = 0.0
+
+    if parity:
+        ax, ay, az = -ax, -ay, -az
+    if frame:
+        ax, az = az, ax
+    return ax, ay, az
+
+def euler_from_quaternion(quaternion, axes='sxyz'):
+    """Return Euler angles from quaternion for specified axis sequence.
+    >>> angles = euler_from_quaternion([0.06146124, 0, 0, 0.99810947])
+    >>> np.allclose(angles, [0.123, 0, 0])
+    True
+    """
+    print(quaternion)
+    return euler_from_matrix(quaternion_matrix(quaternion), axes)
+
 
 
 class WayPoint():
@@ -58,7 +219,7 @@ class CrossWalk():
         self.marker.pose.position.y = self.y 
         self.marker.pose.position.z = 0.0
          
-        quat = tf.transformations.quaternion_from_euler(0.0, 0.0, np.deg2rad(self.yaw))
+        quat = quaternion_from_euler(0.0, 0.0, np.deg2rad(self.yaw))
         self.marker.pose.orientation.x = quat[0]
         self.marker.pose.orientation.y = quat[1]
         self.marker.pose.orientation.z = quat[2]
@@ -495,7 +656,7 @@ class Application():
             else:
                 yaw = np.arctan2((path[i+1][1] - path[i][1]), (path[i+1][0] - path[i][0]))
 
-            quat = tf.transformations.quaternion_from_euler(0.0, 0.0, yaw)
+            quat = quaternion_from_euler(0.0, 0.0, yaw)
             # print(quat)
             pose_stamped.pose.orientation.x = quat[0]
             pose_stamped.pose.orientation.y = quat[1]
@@ -515,7 +676,7 @@ class Application():
                 X.append(x)
                 Y.append(y)
                 Z.append(0)
-                # roll, pitch, yaw = tf.transformations.euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
+                # roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
                 Roll.append(0)
                 Pitch.append(0)
                 Yaw.append(yaw)
@@ -527,7 +688,7 @@ class Application():
                 r_point_y = Y[-1] + lane_size/2.0 * np.sin(yaw - np.pi/2.0)
                 r_lane.append([r_point_x, r_point_y, Z[-1]])
 
-                # quat = tf.transformations.quaternion_from_euler(roll, pitch, yaw)
+                # quat = quaternion_from_euler(roll, pitch, yaw)
 
                 l_pose = PoseStamped()
                 # l_pose.header.frame_id = "map"
@@ -685,8 +846,8 @@ class Application():
         for i in range(len(self.crosswalk_list)):
             file.write(" [{}".format(self.crosswalk_list[i].x))
             file.write(", {}".format(self.crosswalk_list[i].y))
-            file.write(", {}".format(self.crosswalk_list[i].width)) 
             file.write(", {}".format(self.crosswalk_list[i].height)) 
+            file.write(", {}".format(self.crosswalk_list[i].width)) 
             file.write(", {}".format(round(np.deg2rad(self.crosswalk_list[i].yaw),2)))  
 
             if i < (len(self.crosswalk_list) - 1):
@@ -728,8 +889,8 @@ class Application():
         for i in range(len(cw)):
                 x = cw[i][0]
                 y = cw[i][1]
-                width = cw[i][2]
-                height= cw[i][3]
+                height = cw[i][2]
+                width= cw[i][3]
                 yaw = np.rad2deg(cw[i][4])
                 mode = cw[i][5]
                 self.crosswalk_list.append(CrossWalk(x, y, height, width, yaw, mode, ids))
@@ -752,7 +913,7 @@ class Application():
                 self.x.append(message.pose.pose.position.x)
                 self.y.append(message.pose.pose.position.y)
                 self.z.append(message.pose.pose.position.z)
-                _, _, yaw = tf.transformations.euler_from_quaternion([message.pose.pose.orientation.x, message.pose.pose.orientation.y, message.pose.pose.orientation.z, message.pose.pose.orientation.w])
+                _, _, yaw = euler_from_quaternion([message.pose.pose.orientation.x, message.pose.pose.orientation.y, message.pose.pose.orientation.z, message.pose.pose.orientation.w])
                 self.Yaw.append(yaw)
                 self.steering.append(self.current_steering)
                 print("Position ", self.counter, " saved!")
@@ -765,7 +926,7 @@ class Application():
                 self.x.append(message.pose.pose.position.x)
                 self.y.append(message.pose.pose.position.y)
                 self.z.append(message.pose.pose.position.z)
-                _, _, yaw = tf.transformations.euler_from_quaternion([message.pose.pose.orientation.x, message.pose.pose.orientation.y, message.pose.pose.orientation.z, message.pose.pose.orientation.w])
+                _, _, yaw = euler_from_quaternion([message.pose.pose.orientation.x, message.pose.pose.orientation.y, message.pose.pose.orientation.z, message.pose.pose.orientation.w])
                 self.Yaw.append(yaw)
                 self.steering.append(self.current_steering)
                 print("Position ", self.counter, " saved!")
